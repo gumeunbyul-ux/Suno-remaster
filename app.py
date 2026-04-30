@@ -1,470 +1,363 @@
-# ============================================================
-# 🎵 Suno AI 음악 리마스터링 웹 앱 (ffmpeg 불필요 버전)
-# 작성자: 시니어 파이썬 오디오 엔지니어
-# 설명: Streamlit 기반 모바일 최적화 음악 리마스터링 도구
-# ============================================================
+"""
+🎵 가사 기반 썸네일 & 유튜브 정보 생성기
+Streamlit 앱 - 스마트폰 브라우저에서 실행 가능
+"""
 
-# --- 필요한 라이브러리 불러오기 ---
-import streamlit as st          # 웹 앱 프레임워크
-import numpy as np              # 수치 계산 라이브러리
-from scipy import signal        # 디지털 신호처리 (필터 적용)
-from scipy.io import wavfile    # WAV 파일 읽기/쓰기
-import io                       # 메모리 내 파일 처리
-import struct                   # 바이너리 데이터 처리
-import tempfile                 # 임시 파일 생성
-import os                       # 운영체제 파일 경로 처리
+import streamlit as st
+from openai import OpenAI
 
-# ============================================================
-# 🎨 페이지 기본 설정
-# ============================================================
+# ─────────────────────────────────────────
+# 페이지 기본 설정 (반드시 첫 번째 Streamlit 명령)
+# ─────────────────────────────────────────
 st.set_page_config(
-    page_title="🎵 AI 음악 리마스터",
+    page_title="🎵 가사 썸네일 생성기",
     page_icon="🎵",
-    layout="centered",
-    initial_sidebar_state="collapsed"
+    layout="centered",  # 스마트폰 화면에 맞게 중앙 정렬
 )
 
-# ============================================================
-# 🎨 커스텀 CSS 스타일
-# ============================================================
+# ─────────────────────────────────────────
+# 커스텀 CSS - 스마트폰 최적화 디자인
+# ─────────────────────────────────────────
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
+    /* 전체 폰트 및 배경 */
+    html, body, [class*="css"] {
+        font-family: 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif;
+    }
 
-    .stApp {
-        background: linear-gradient(135deg, #0a0a0f 0%, #0d1117 40%, #0a0e1a 100%);
-        font-family: 'Noto Sans KR', sans-serif;
+    /* 메인 컨테이너 여백 조정 (모바일 최적화) */
+    .block-container {
+        padding: 1rem 1rem 2rem 1rem !important;
+        max-width: 720px;
     }
-    .main .block-container {
-        max-width: 480px;
-        padding: 1rem 1.2rem 3rem 1.2rem;
-        margin: 0 auto;
-    }
-    .app-header {
-        text-align: center;
-        padding: 2rem 0 1.5rem 0;
-        background: linear-gradient(180deg, rgba(99,202,183,0.08) 0%, transparent 100%);
-        border-radius: 16px;
-        margin-bottom: 1.5rem;
-        border: 1px solid rgba(99,202,183,0.12);
-    }
-    .app-title {
-        font-family: 'Rajdhani', sans-serif;
-        font-size: 2.2rem;
-        font-weight: 700;
-        background: linear-gradient(90deg, #63CAB7, #a8edea, #63CAB7);
-        background-size: 200% auto;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        animation: shimmer 3s linear infinite;
-        letter-spacing: 2px;
-        margin: 0;
-    }
-    @keyframes shimmer {
-        0% { background-position: 0% center; }
-        100% { background-position: 200% center; }
-    }
-    .app-subtitle {
-        color: rgba(99,202,183,0.6);
-        font-size: 0.82rem;
-        margin-top: 0.4rem;
-        letter-spacing: 1px;
-        font-weight: 300;
-    }
-    .section-card {
-        background: rgba(255,255,255,0.03);
-        border: 1px solid rgba(99,202,183,0.15);
-        border-radius: 14px;
-        padding: 1.4rem 1.2rem;
-        margin-bottom: 1.2rem;
-    }
-    .section-title {
-        color: #63CAB7;
-        font-size: 0.78rem;
-        font-weight: 600;
-        letter-spacing: 2px;
-        text-transform: uppercase;
-        margin-bottom: 0.8rem;
-    }
-    .success-box {
-        background: rgba(99,202,183,0.08);
-        border: 1px solid rgba(99,202,183,0.3);
+
+    /* 결과 텍스트 박스 스타일 */
+    .result-box {
+        background: #1e1e2e;
+        color: #cdd6f4;
+        border: 1px solid #45475a;
         border-radius: 12px;
-        padding: 1rem 1.2rem;
-        margin: 1rem 0;
-        color: #a8edea;
-        font-size: 0.9rem;
+        padding: 16px;
+        font-size: 14px;
+        line-height: 1.7;
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin-bottom: 8px;
+        font-family: monospace;
     }
-    .info-box {
-        background: rgba(255,200,100,0.06);
-        border: 1px solid rgba(255,200,100,0.2);
-        border-radius: 10px;
-        padding: 0.8rem 1rem;
-        margin: 0.8rem 0;
-        color: rgba(255,200,100,0.8);
-        font-size: 0.82rem;
-        line-height: 1.5;
+
+    /* 섹션 헤더 */
+    .section-header {
+        font-size: 16px;
+        font-weight: 700;
+        color: #cba6f7;
+        margin: 20px 0 8px 0;
+        border-left: 4px solid #cba6f7;
+        padding-left: 10px;
     }
-    p, .stMarkdown, label { color: rgba(200,220,218,0.85) !important; }
-    h1, h2, h3 { color: #a8edea !important; }
-    hr { border-color: rgba(99,202,183,0.15) !important; margin: 1.5rem 0 !important; }
+
+    /* 복사 안내 텍스트 */
+    .copy-tip {
+        font-size: 12px;
+        color: #6c7086;
+        margin-bottom: 16px;
+    }
+
+    /* 버튼 스타일 */
     .stButton > button {
         width: 100%;
-        background: linear-gradient(135deg, #1a6b60 0%, #0d4a42 100%);
-        color: #a8edea;
-        border: 1px solid rgba(99,202,183,0.4);
-        border-radius: 12px;
-        font-family: 'Rajdhani', sans-serif;
-        font-size: 1.1rem;
+        background: linear-gradient(135deg, #cba6f7, #89b4fa);
+        color: #1e1e2e;
         font-weight: 700;
-        letter-spacing: 2px;
-        padding: 0.75rem 1.5rem;
-        text-transform: uppercase;
+        font-size: 16px;
+        border: none;
+        border-radius: 10px;
+        padding: 12px;
+        cursor: pointer;
     }
-    .stButton > button:hover {
-        background: linear-gradient(135deg, #21877a 0%, #115954 100%);
-        color: #ffffff;
+
+    /* 텍스트 입력창 */
+    .stTextArea textarea {
+        font-size: 15px;
+        border-radius: 10px;
     }
-    [data-testid="stDownloadButton"] > button {
-        width: 100%;
-        background: linear-gradient(135deg, #2d5a3d 0%, #1a3d2a 100%);
-        color: #7edd9b;
-        border: 1px solid rgba(126,221,155,0.4);
-        border-radius: 12px;
-        font-family: 'Rajdhani', sans-serif;
-        font-size: 1rem;
-        font-weight: 700;
-        letter-spacing: 2px;
-        padding: 0.75rem 1.5rem;
-        text-transform: uppercase;
+    .stTextInput input {
+        font-size: 14px;
+        border-radius: 10px;
     }
-    footer { display: none; }
-    #MainMenu { display: none; }
-    header { display: none; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ============================================================
-# 🔧 MP3 디코딩 함수 (minimp3 / pydub 없이 처리)
-# ============================================================
-
-def read_audio_file(uploaded_file):
-    """
-    업로드된 오디오 파일을 numpy 배열로 읽는 함수
-    MP3는 soundfile로, WAV는 scipy로 처리
-    """
-    file_bytes = uploaded_file.getvalue()  # 파일 내용을 바이트로 읽기
-    file_ext = uploaded_file.name.split('.')[-1].lower()  # 확장자 추출
-
-    if file_ext == 'wav':
-        # WAV 파일: scipy로 직접 읽기
-        buf = io.BytesIO(file_bytes)
-        sample_rate, samples = wavfile.read(buf)
-
-        # 데이터 타입을 float32로 변환
-        if samples.dtype == np.int16:
-            samples = samples.astype(np.float32)
-        elif samples.dtype == np.int32:
-            samples = (samples / 2147483648.0 * 32767.0).astype(np.float32)
-        elif samples.dtype == np.float32 or samples.dtype == np.float64:
-            samples = (samples * 32767.0).astype(np.float32)
-
-        # 모노인 경우 스테레오로 변환
-        if samples.ndim == 1:
-            samples = np.stack([samples, samples], axis=1)
-
-        return samples, sample_rate
-
-    else:
-        # MP3 파일: soundfile + pydub 없이 처리
-        # soundfile은 MP3를 못 읽으므로 pydub 대신 minimp3py 시도
-        try:
-            import minimp3py
-            buf = io.BytesIO(file_bytes)
-            frames = []
-            sample_rate = 44100
-            while True:
-                frame_info, pcm = minimp3py.decode_frame(buf)
-                if frame_info is None:
-                    break
-                sample_rate = frame_info.hz
-                frames.append(pcm)
-            if frames:
-                samples = np.concatenate(frames, axis=0).astype(np.float32)
-                if samples.ndim == 1:
-                    samples = np.stack([samples, samples], axis=1)
-                return samples, sample_rate
-        except Exception:
-            pass
-
-        # 최후 방법: pydub (ffmpeg 없이 pure python mp3 decoder)
-        try:
-            from pydub import AudioSegment
-            buf = io.BytesIO(file_bytes)
-            audio = AudioSegment.from_file(buf, format="mp3")
-            audio = audio.set_frame_rate(44100).set_channels(2)
-            samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
-            samples = samples.reshape((-1, 2))
-            return samples, 44100
-        except Exception as e:
-            raise Exception(f"MP3 읽기 실패: {str(e)}\n\nWAV 파일로 변환 후 업로드해보세요.")
+# ─────────────────────────────────────────
+# 헤더
+# ─────────────────────────────────────────
+st.markdown("# 🎵 가사 썸네일 & 유튜브 생성기")
+st.markdown("가사를 입력하면 AI가 썸네일 프롬프트와 유튜브 정보를 자동으로 만들어 드려요.")
+st.divider()
 
 
-def samples_to_wav_bytes(samples, sample_rate):
-    """
-    numpy 배열을 WAV 바이트로 변환 (다운로드용)
-    """
-    # 16비트 정수로 변환
-    samples_clipped = np.clip(samples, -32768, 32767).astype(np.int16)
-    buf = io.BytesIO()
-    wavfile.write(buf, sample_rate, samples_clipped)
-    buf.seek(0)
-    return buf.getvalue()
-
-
-# ============================================================
-# 🔧 오디오 처리 함수들
-# ============================================================
-
-def apply_normalization(samples, target_db=-1.0):
-    """🔊 Normalization: 음압 표준화"""
-    peak = np.max(np.abs(samples))
-    if peak < 1e-6:
-        return samples
-    target_linear = 10 ** (target_db / 20)
-    target_amplitude = target_linear * 32767.0
-    gain = target_amplitude / peak
-    return samples * gain
-
-
-def apply_bass_boost(samples, sample_rate, gain_db=6.0, freq=150.0):
-    """🎸 Bass Boost: 저음 강화"""
-    nyquist = sample_rate / 2.0
-    cutoff_normalized = freq / nyquist
-    b, a = signal.butter(2, cutoff_normalized, btype='low')
-    gain_linear = 10 ** (gain_db / 20)
-
-    if samples.ndim == 2:
-        boosted = np.zeros_like(samples)
-        for ch in range(samples.shape[1]):
-            bass_component = signal.filtfilt(b, a, samples[:, ch])
-            boosted[:, ch] = samples[:, ch] + bass_component * (gain_linear - 1.0)
-    else:
-        bass_component = signal.filtfilt(b, a, samples)
-        boosted = samples + bass_component * (gain_linear - 1.0)
-    return boosted
-
-
-def apply_treble_clarity(samples, sample_rate, noise_reduction_db=4.0, clarity_gain_db=3.0):
-    """✨ Treble Clarity: 고음 선명도 향상"""
-    nyquist = sample_rate / 2.0
-    cutoff_normalized = min(8000.0 / nyquist, 0.95)
-    b_high, a_high = signal.butter(2, cutoff_normalized, btype='high')
-    noise_cutoff = min(12000.0 / nyquist, 0.98)
-    b_noise, a_noise = signal.butter(3, noise_cutoff, btype='low')
-    noise_reduction = 10 ** (-noise_reduction_db / 20)
-    clarity_gain = 10 ** (clarity_gain_db / 20)
-
-    if samples.ndim == 2:
-        result = np.zeros_like(samples)
-        for ch in range(samples.shape[1]):
-            high_freq = signal.filtfilt(b_high, a_high, samples[:, ch])
-            noise_component = samples[:, ch] - signal.filtfilt(b_noise, a_noise, samples[:, ch])
-            result[:, ch] = (samples[:, ch]
-                             - noise_component * (1 - noise_reduction)
-                             + high_freq * (clarity_gain - 1.0))
-    else:
-        high_freq = signal.filtfilt(b_high, a_high, samples)
-        noise_component = samples - signal.filtfilt(b_noise, a_noise, samples)
-        result = (samples
-                  - noise_component * (1 - noise_reduction)
-                  + high_freq * (clarity_gain - 1.0))
-    return result
-
-
-def apply_limiter(samples, threshold_db=-0.5):
-    """🛡️ Limiter: 소리 깨짐 방지"""
-    threshold_linear = (10 ** (threshold_db / 20)) * 32767.0
-    abs_samples = np.abs(samples)
-    over_threshold = abs_samples > threshold_linear
-    limited = np.where(
-        over_threshold,
-        np.sign(samples) * threshold_linear * (1 + np.tanh((abs_samples - threshold_linear) / threshold_linear) * 0.1),
-        samples
+# ─────────────────────────────────────────
+# API 키 입력 (보안: password 타입으로 숨김)
+# ─────────────────────────────────────────
+with st.expander("🔑 OpenAI API 키 설정 (처음 한 번만)", expanded=True):
+    api_key = st.text_input(
+        "OpenAI API 키를 입력하세요",
+        type="password",  # 입력 내용이 보이지 않도록 설정
+        placeholder="sk-...",
+        help="https://platform.openai.com 에서 발급받을 수 있어요."
     )
-    return np.clip(limited, -32767, 32767)
+    st.caption("🔒 API 키는 이 세션에서만 사용되며 저장되지 않습니다.")
 
 
-def remaster_audio(samples, sample_rate, settings):
-    """🎵 메인 리마스터링 파이프라인"""
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-
-    status_text.text("⚙️ 단계 1/4: 음압 표준화 중...")
-    progress_bar.progress(15)
-    if settings.get('normalization', True):
-        samples = apply_normalization(samples, target_db=-1.0)
-
-    status_text.text("⚙️ 단계 2/4: 베이스 강화 중...")
-    progress_bar.progress(40)
-    if settings.get('bass_boost', True):
-        samples = apply_bass_boost(samples, sample_rate, gain_db=settings.get('bass_gain_db', 6.0))
-
-    status_text.text("⚙️ 단계 3/4: 고음 선명도 향상 중...")
-    progress_bar.progress(65)
-    if settings.get('treble_clarity', True):
-        samples = apply_treble_clarity(
-            samples, sample_rate,
-            noise_reduction_db=settings.get('treble_noise_db', 4.0),
-            clarity_gain_db=settings.get('treble_clarity_db', 3.0)
-        )
-
-    status_text.text("⚙️ 단계 4/4: 리미터 적용 중...")
-    progress_bar.progress(85)
-    if settings.get('limiter', True):
-        samples = apply_limiter(samples)
-
-    progress_bar.progress(100)
-    status_text.text("✅ 리마스터링 완료!")
-    return samples
-
-
-# ============================================================
-# 🖥️ UI 렌더링
-# ============================================================
-
-st.markdown("""
-<div class="app-header">
-    <div class="app-title">🎵 AI REMASTER</div>
-    <div class="app-subtitle">SUNO AI 음악 고음질 리마스터링</div>
-</div>
-""", unsafe_allow_html=True)
-
-st.markdown("""
-<div class="info-box">
-    💡 <strong>사용 방법</strong><br>
-    MP3 또는 WAV 파일을 업로드하면 전문 음향 처리 후<br>
-    고음질 WAV 파일로 다운로드할 수 있어요.
-</div>
-""", unsafe_allow_html=True)
-
-# 파일 업로드
-st.markdown('<div class="section-card">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">📁 파일 업로드</div>', unsafe_allow_html=True)
-uploaded_file = st.file_uploader(
-    "MP3 또는 WAV 파일을 선택하세요",
-    type=["mp3", "wav"],
-    help="최대 200MB까지 업로드 가능합니다"
+# ─────────────────────────────────────────
+# 가사 입력
+# ─────────────────────────────────────────
+st.markdown("### ✍️ 가사 입력")
+lyrics = st.text_area(
+    label="가사를 여기에 붙여넣기 하세요",
+    placeholder="예시:\n그대의 미소가 나를 부르는 밤\n별빛 아래 우리 둘이 걷던 그 길\n이제 모든 것이 달라져도\n기억 속에 넌 언제나 빛나고 있어...",
+    height=220,  # 스마트폰에서 입력하기 적당한 높이
+    label_visibility="collapsed"
 )
-st.markdown('</div>', unsafe_allow_html=True)
 
-# 설정
-st.markdown('<div class="section-card">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">⚙️ 리마스터링 설정</div>', unsafe_allow_html=True)
+# 추가 옵션 (접이식)
+with st.expander("⚙️ 추가 옵션"):
+    genre = st.selectbox(
+        "음악 장르",
+        ["자동 감지", "발라드", "K-POP", "힙합", "R&B", "록", "재즈", "포크", "OST"],
+    )
+    channel_concept = st.text_input(
+        "채널 콘셉트 (선택사항)",
+        placeholder="예: 감성 피아노, 힐링 음악 채널, 커버곡 채널..."
+    )
 
-use_normalization = st.checkbox("🔊 Normalization (음압 표준화)", value=True)
-use_bass_boost = st.checkbox("🎸 Bass Boost (저음 강화)", value=True)
-if use_bass_boost:
-    bass_gain = st.slider("베이스 강도", 2.0, 12.0, 6.0, 1.0, format="%.0f dB")
-else:
-    bass_gain = 6.0
 
-use_treble = st.checkbox("✨ Treble Clarity (고음 선명도)", value=True)
-if use_treble:
-    treble_clarity_level = st.slider("고음 선명도", 1.0, 6.0, 3.0, 0.5, format="%.1f dB")
-    treble_noise_level = st.slider("노이즈 억제", 1.0, 8.0, 4.0, 0.5, format="%.1f dB")
-else:
-    treble_clarity_level = 3.0
-    treble_noise_level = 4.0
+# ─────────────────────────────────────────
+# AI 분석 함수
+# ─────────────────────────────────────────
+def analyze_lyrics(api_key: str, lyrics: str, genre: str, channel_concept: str) -> dict:
+    """
+    가사를 분석하여 썸네일 프롬프트, 유튜브 제목/설명을 생성하는 함수.
+    반환값: 딕셔너리 형태의 결과물
+    """
 
-use_limiter = st.checkbox("🛡️ Limiter (소리 깨짐 방지)", value=True)
-st.markdown('</div>', unsafe_allow_html=True)
+    # OpenAI 클라이언트 생성
+    client = OpenAI(api_key=api_key)
 
-# 처리 및 결과
-if uploaded_file is not None:
-    file_size_mb = uploaded_file.size / (1024 * 1024)
+    # 장르 정보 처리
+    genre_text = f"장르: {genre}" if genre != "자동 감지" else "장르는 가사에서 자동 판단해주세요."
+    concept_text = f"채널 콘셉트: {channel_concept}" if channel_concept.strip() else ""
+
+    # ── AI에게 보내는 지시문 (프롬프트) ──
+    prompt = f"""
+당신은 음악 콘텐츠 전문 AI 크리에이터입니다.
+아래 가사를 분석하고, 요청된 형식으로 정확하게 결과를 작성해주세요.
+
+[가사]
+{lyrics}
+
+[추가 정보]
+{genre_text}
+{concept_text}
+
+━━━━━━━━━━━━━━━━━━━━━
+다음 4가지를 순서대로 작성해주세요:
+
+【1. 감성 분석】
+- 가사의 핵심 감정과 분위기를 3~5줄로 설명하세요.
+- 색깔, 시간대, 계절, 날씨 등 시각적 이미지로 표현하세요.
+
+【2. 이미지 생성 AI 프롬프트 (영문)】
+- Midjourney / DALL-E 3에 바로 사용할 수 있는 영문 프롬프트를 작성하세요.
+- 형식: [장면 묘사], [분위기], [색감], [화풍], [카메라/조명], [해상도]
+- 반드시 영어로만 작성하세요. 길이: 100~150 단어.
+
+【3. 유튜브 제목 3가지】
+- 각각 다른 스타일로 (감성형 / 정보형 / 궁금증 유발형)
+- 이모지 포함, 40자 이내, 검색이 잘 되도록 작성하세요.
+- 번호를 붙여 한 줄씩 작성하세요.
+
+【4. 유튜브 영상 설명글】
+- 지혜롭고 깊이 있는 문체로 작성하세요. (철학적이고 성찰적인 느낌)
+- 가사의 의미와 삶의 통찰을 연결하는 2~3문단의 소개글
+- 그 다음에 이어서: 해시태그 15개 (관련성 높은 한국어+영어 혼합)
+- 마지막에: 구독/좋아요 유도 문구 1줄
+
+모든 답변은 위의 【】 헤더를 그대로 사용하여 구분해주세요.
+"""
+
+    # GPT-4o에게 요청 전송
+    response = client.chat.completions.create(
+        model="gpt-4o",          # 가장 뛰어난 분석 능력
+        messages=[
+            {
+                "role": "system",
+                "content": "당신은 음악 감성 분석과 유튜브 콘텐츠 제작에 전문화된 AI 크리에이터입니다. 한국어로 정확하고 창의적으로 답변합니다."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0.8,        # 창의성 수준 (0~1, 높을수록 다양한 표현)
+        max_tokens=2000,        # 최대 출력 길이
+    )
+
+    # 응답 텍스트 추출
+    full_text = response.choices[0].message.content
+
+    # ── 결과를 섹션별로 분리 ──
+    sections = {
+        "emotion": "",
+        "prompt": "",
+        "titles": "",
+        "description": ""
+    }
+
+    # 각 섹션 키워드로 텍스트 분리
+    markers = {
+        "emotion":      "【1. 감성 분석】",
+        "prompt":       "【2. 이미지 생성 AI 프롬프트",
+        "titles":       "【3. 유튜브 제목",
+        "description":  "【4. 유튜브 영상 설명글】"
+    }
+
+    lines = full_text.split("\n")
+    current_key = None
+
+    for line in lines:
+        # 어느 섹션에 해당하는지 판별
+        for key, marker in markers.items():
+            if marker in line:
+                current_key = key
+                break
+        else:
+            # 섹션 내용 추가
+            if current_key:
+                sections[current_key] += line + "\n"
+
+    return sections
+
+
+# ─────────────────────────────────────────
+# 복사 버튼 헬퍼 함수 (JavaScript 클립보드 복사)
+# ─────────────────────────────────────────
+def copy_button(text: str, button_id: str, label: str = "📋 복사하기"):
+    """
+    텍스트를 클립보드에 복사하는 버튼 생성.
+    JavaScript를 사용하여 모바일 브라우저에서도 동작함.
+    """
+    # 텍스트 내 특수문자 이스케이프 처리
+    escaped = text.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+
     st.markdown(f"""
-    <div class="success-box">
-        ✅ 파일 업로드 완료<br>
-        📄 <strong>{uploaded_file.name}</strong><br>
-        📦 크기: {file_size_mb:.1f} MB
-    </div>
+    <button
+        onclick="navigator.clipboard.writeText(`{escaped}`).then(() => {{
+            this.textContent = '✅ 복사됨!';
+            setTimeout(() => this.textContent = '{label}', 2000);
+        }})"
+        style="
+            background: #313244;
+            color: #cdd6f4;
+            border: 1px solid #45475a;
+            border-radius: 8px;
+            padding: 8px 16px;
+            font-size: 13px;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 20px;
+        "
+        id="{button_id}"
+    >{label}</button>
     """, unsafe_allow_html=True)
 
-    if st.button("🎵 리마스터링 시작", use_container_width=True):
-        settings = {
-            'normalization':     use_normalization,
-            'bass_boost':        use_bass_boost,
-            'bass_gain_db':      bass_gain,
-            'treble_clarity':    use_treble,
-            'treble_clarity_db': treble_clarity_level,
-            'treble_noise_db':   treble_noise_level,
-            'limiter':           use_limiter,
-        }
 
+# ─────────────────────────────────────────
+# 메인 실행 버튼
+# ─────────────────────────────────────────
+st.markdown("")  # 여백
+generate_btn = st.button("🚀 AI 분석 시작!", use_container_width=True)
+
+
+# ─────────────────────────────────────────
+# 결과 출력
+# ─────────────────────────────────────────
+if generate_btn:
+
+    # 입력값 검증
+    if not api_key.strip():
+        st.error("⚠️ OpenAI API 키를 먼저 입력해주세요!")
+        st.stop()
+
+    if not lyrics.strip():
+        st.error("⚠️ 가사를 입력해주세요!")
+        st.stop()
+
+    if len(lyrics.strip()) < 20:
+        st.warning("💡 가사가 너무 짧아요. 더 입력하면 결과가 좋아져요.")
+
+    # 로딩 스피너 표시
+    with st.spinner("🎵 AI가 가사를 분석하고 있어요... (10~20초 소요)"):
         try:
-            # 오디오 읽기
-            with st.spinner("파일 읽는 중..."):
-                samples, sample_rate = read_audio_file(uploaded_file)
+            # AI 분석 실행
+            results = analyze_lyrics(api_key, lyrics, genre, channel_concept)
 
-            # 리마스터링 처리
-            remastered = remaster_audio(samples, sample_rate, settings)
+            st.success("✨ 분석 완료! 결과를 확인하세요.")
+            st.divider()
 
-            # WAV로 변환
-            wav_bytes = samples_to_wav_bytes(remastered, sample_rate)
-            original_wav = samples_to_wav_bytes(samples, sample_rate)
+            # ── 1. 감성 분석 ──
+            st.markdown('<div class="section-header">🎭 감성 분석</div>', unsafe_allow_html=True)
+            st.markdown('<p class="copy-tip">길게 눌러서 텍스트를 선택하거나 아래 버튼으로 복사하세요</p>', unsafe_allow_html=True)
+            emotion_text = results["emotion"].strip()
+            st.markdown(f'<div class="result-box">{emotion_text}</div>', unsafe_allow_html=True)
+            copy_button(emotion_text, "btn_emotion", "📋 감성 분석 복사")
 
-            # 비교 미리듣기
-            st.markdown("---")
-            st.markdown('<div class="section-card">', unsafe_allow_html=True)
-            st.markdown('<div class="section-title">🎧 비교 미리듣기</div>', unsafe_allow_html=True)
-            st.markdown("**원본 (Original)**")
-            st.audio(original_wav, format="audio/wav")
-            st.markdown("**리마스터링 결과 (Remastered)**")
-            st.audio(wav_bytes, format="audio/wav")
-            st.markdown('</div>', unsafe_allow_html=True)
+            # ── 2. 이미지 프롬프트 ──
+            st.markdown('<div class="section-header">🎨 이미지 생성 AI 프롬프트</div>', unsafe_allow_html=True)
+            st.markdown('<p class="copy-tip">Midjourney, DALL-E 3, Stable Diffusion에 바로 사용 가능</p>', unsafe_allow_html=True)
+            prompt_text = results["prompt"].strip()
+            st.markdown(f'<div class="result-box">{prompt_text}</div>', unsafe_allow_html=True)
+            copy_button(prompt_text, "btn_prompt", "📋 이미지 프롬프트 복사")
 
-            # 다운로드
-            st.markdown('<div class="section-card">', unsafe_allow_html=True)
-            st.markdown('<div class="section-title">📥 고음질 다운로드</div>', unsafe_allow_html=True)
-            original_name = os.path.splitext(uploaded_file.name)[0]
-            st.download_button(
-                label="⬇️ 고음질 WAV 다운로드",
-                data=wav_bytes,
-                file_name=f"{original_name}_remastered.wav",
-                mime="audio/wav",
-                use_container_width=True
-            )
-            st.markdown("""
-            <div class="info-box">
-                💾 WAV는 무손실 포맷이라 MP3보다 음질이 더 좋아요!
-            </div>
-            """, unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            # ── 3. 유튜브 제목 ──
+            st.markdown('<div class="section-header">📺 유튜브 제목 3가지</div>', unsafe_allow_html=True)
+            st.markdown('<p class="copy-tip">마음에 드는 제목을 선택해서 사용하세요</p>', unsafe_allow_html=True)
+            titles_text = results["titles"].strip()
+            st.markdown(f'<div class="result-box">{titles_text}</div>', unsafe_allow_html=True)
+            copy_button(titles_text, "btn_titles", "📋 유튜브 제목 복사")
+
+            # ── 4. 유튜브 설명글 ──
+            st.markdown('<div class="section-header">📝 유튜브 영상 설명글 & 해시태그</div>', unsafe_allow_html=True)
+            st.markdown('<p class="copy-tip">유튜브 영상 설명란에 그대로 붙여넣기 하세요</p>', unsafe_allow_html=True)
+            desc_text = results["description"].strip()
+            st.markdown(f'<div class="result-box">{desc_text}</div>', unsafe_allow_html=True)
+            copy_button(desc_text, "btn_desc", "📋 설명글 전체 복사")
+
+            st.divider()
+            st.caption("💡 결과가 마음에 들지 않으면 버튼을 다시 눌러 새로운 버전을 생성하세요!")
 
         except Exception as e:
-            st.error(f"""
-            ⚠️ 처리 중 오류가 발생했습니다.
+            # 에러 처리 - 초보자가 이해할 수 있는 메시지로 표시
+            error_msg = str(e)
+            if "api_key" in error_msg.lower() or "authentication" in error_msg.lower() or "incorrect api key" in error_msg.lower():
+                st.error("❌ API 키가 올바르지 않아요. 다시 확인해주세요.\n\nhttps://platform.openai.com/api-keys 에서 확인하세요.")
+            elif "quota" in error_msg.lower() or "billing" in error_msg.lower():
+                st.error("❌ API 사용 한도를 초과했어요. OpenAI 계정의 크레딧을 충전해주세요.")
+            elif "rate_limit" in error_msg.lower():
+                st.error("❌ 요청이 너무 많아요. 잠시 후 다시 시도해주세요.")
+            else:
+                st.error(f"❌ 오류가 발생했어요:\n{error_msg}")
 
-            **오류 내용:** {str(e)}
 
-            **해결 방법:**
-            - WAV 파일로 변환 후 업로드해보세요
-            - 파일이 손상되지 않았는지 확인하세요
-            """)
-else:
-    st.markdown("""
-    <div style="text-align:center; padding: 2rem 0; color: rgba(99,202,183,0.4);">
-        <div style="font-size: 3rem;">🎵</div>
-        <div style="font-size: 0.85rem; margin-top: 0.5rem;">위에서 음악 파일을 업로드해주세요</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-st.markdown("---")
+# ─────────────────────────────────────────
+# 하단 안내
+# ─────────────────────────────────────────
+st.divider()
 st.markdown("""
-<div style="font-size: 0.75rem; color: rgba(99,202,183,0.35); text-align:center; padding-bottom: 2rem;">
-    🔊 Normalization → 🎸 Bass Boost → ✨ Treble Clarity → 🛡️ Limiter
+<div style="text-align:center; color:#6c7086; font-size:13px; line-height:1.8;">
+🎵 가사 썸네일 & 유튜브 정보 생성기<br>
+Powered by OpenAI GPT-4o<br>
+스마트폰에서도 편하게 사용하세요 📱
 </div>
 """, unsafe_allow_html=True)
