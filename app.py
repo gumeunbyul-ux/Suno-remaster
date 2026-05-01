@@ -102,8 +102,14 @@ st.divider()
 # ─────────────────────────────────────────
 with st.expander("🔑 OpenAI API 키 설정 (처음 한 번만)", expanded=True):
     api_key = st.text_input(
+        # Secrets에서 자동으로 키 불러오기
+api_key = st.secrets.get("OPENAI_API_KEY", "")
+
+# 키가 없을 때만 입력창 표시
+if not api_key:
+    api_key = st.text_input(
         "OpenAI API 키를 입력하세요",
-        type="password",  # 입력 내용이 보이지 않도록 설정
+        type="password",
         placeholder="sk-...",
         help="https://platform.openai.com 에서 발급받을 수 있어요."
     )
