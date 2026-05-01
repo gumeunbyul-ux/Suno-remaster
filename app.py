@@ -19,16 +19,14 @@ st.markdown("# 🎵 가사 썸네일 & 유튜브 생성기")
 st.markdown("가사를 입력하면 AI가 썸네일 프롬프트와 유튜브 정보를 만들어 드려요.")
 st.divider()
 
-# API 키 입력 (secrets 없이 항상 입력창으로 - 가장 안전한 방법)
-with st.expander("🔑 OpenAI API 키 설정", expanded=True):
-    api_key = st.text_input(
-        "API 키",
-        type="password",
-        placeholder="sk-...",
-        label_visibility="collapsed"
-    )
-    st.caption("🔒 키는 이 세션에서만 사용되며 저장되지 않습니다. https://platform.openai.com")
+# Secrets에서 API 키 불러오기 (입력창 없음)
+try:
+    api_key = st.secrets["OPENAI_API_KEY"]
+except Exception:
+    st.error("API 키가 설정되지 않았어요. Streamlit Cloud > Settings > Secrets 에서 OPENAI_API_KEY를 추가해주세요.")
+    st.stop()
 
+# 가사 입력
 st.markdown("### ✍️ 가사 입력")
 lyrics = st.text_area(
     "가사",
@@ -43,7 +41,6 @@ with st.expander("⚙️ 추가 옵션"):
 
 def run_ai(key, lyr, gnr, con):
     client = OpenAI(api_key=key)
-
     g = ("장르: " + gnr) if gnr != "자동 감지" else "장르는 가사에서 판단"
     c = ("채널: " + con) if con.strip() else ""
 
@@ -70,13 +67,9 @@ def show_section(title, tip, content):
     st.markdown(f'<div class="sec-hd">{title}</div>', unsafe_allow_html=True)
     st.caption(tip)
     st.markdown(f'<div class="result-box">{content}</div>', unsafe_allow_html=True)
-    # 텍스트 영역으로도 보여줘서 길게 눌러 복사 가능하게
     st.text_area("복사용", value=content, height=120, label_visibility="collapsed", key=title)
 
 if st.button("🚀 AI 분석 시작!", use_container_width=True):
-    if not api_key.strip():
-        st.error("API 키를 입력해주세요!")
-        st.stop()
     if not lyrics.strip():
         st.error("가사를 입력해주세요!")
         st.stop()
@@ -87,29 +80,26 @@ if st.button("🚀 AI 분석 시작!", use_container_width=True):
             st.success("✨ 분석 완료!")
             st.divider()
 
-            # 결과를 섹션별로 나누기
             parts = {"감성분석": "", "이미지프롬프트": "", "유튜브제목": "", "유튜브설명": ""}
             cur = None
             for line in result.split("\n"):
                 for k in parts:
-                    if k in line or k.replace("분석","").replace("프롬프트","").replace("제목","").replace("설명","") in line:
-                        if any(marker in line for marker in ["1.", "2.", "3.", "4.", "[", "【"]):
-                            cur = k
-                            break
+                    if k in line and any(m in line for m in ["1.", "2.", "3.", "4.", "[", "【"]):
+                        cur = k
+                        break
                 else:
                     if cur:
                         parts[cur] += line + "\n"
 
-            # 섹션이 제대로 안 나뉘면 전체 출력
             if all(v.strip() == "" for v in parts.values()):
                 st.markdown('<div class="sec-hd">📋 분석 결과</div>', unsafe_allow_html=True)
                 st.text_area("결과 전체", value=result, height=500, label_visibility="collapsed")
             else:
                 labels = [
-                    ("감성분석",    "🎭 감성 분석",              "가사의 감성과 분위기"),
-                    ("이미지프롬프트", "🎨 이미지 생성 프롬프트", "Midjourney / DALL-E 3 용"),
-                    ("유튜브제목",  "📺 유튜브 제목 3가지",      "마음에 드는 것 선택"),
-                    ("유튜브설명",  "📝 유튜브 설명글 & 해시태그","설명란에 붙여넣기"),
+                    ("감성분석",      "🎭 감성 분석",               "가사의 감성과 분위기"),
+                    ("이미지프롬프트", "🎨 이미지 생성 프롬프트",    "Midjourney / DALL-E 3 용"),
+                    ("유튜브제목",    "📺 유튜브 제목 3가지",        "마음에 드는 것 선택"),
+                    ("유튜브설명",    "📝 유튜브 설명글 & 해시태그", "설명란에 붙여넣기"),
                 ]
                 for k, title, tip in labels:
                     if parts[k].strip():
@@ -119,14 +109,12 @@ if st.button("🚀 AI 분석 시작!", use_container_width=True):
 
         except Exception as e:
             err = str(e)
-            if "auth" in err.lower() or "api_key" in err.lower() or "invalid" in err.lower():
-                st.error("API 키가 올바르지 않아요. 다시 확인해주세요.")
+            if "auth" in err.lower() or "invalid" in err.lower():
+                st.error("API 키가 올바르지 않아요.")
             elif "quota" in err.lower() or "billing" in err.lower():
                 st.error("API 크레딧이 부족해요. OpenAI에서 충전해주세요.")
-            elif "rate" in err.lower():
-                st.error("요청이 너무 많아요. 잠시 후 다시 시도해주세요.")
             else:
-                st.error("오류가 발생했어요: " + err)
+                st.error("오류: " + err)
 
 st.divider()
 st.caption("🎵 가사 썸네일 & 유튜브 정보 생성기 | Powered by OpenAI GPT-4o mini")
