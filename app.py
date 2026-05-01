@@ -1,7 +1,15 @@
+# -*- coding: utf-8 -*-
 """
 🎵 가사 기반 썸네일 & 유튜브 정보 생성기
 Streamlit Secrets 기능으로 API 키를 안전하게 보관
 """
+
+import sys
+import io
+
+# 한글/이모지 인코딩 오류 방지 - 반드시 필요!
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 import streamlit as st
 from openai import OpenAI
