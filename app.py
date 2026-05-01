@@ -1,205 +1,132 @@
-# -*- coding: utf-8 -*-
-"""
-🎵 가사 기반 썸네일 & 유튜브 정보 생성기
-"""
-
 import streamlit as st
 from openai import OpenAI
 
-# 페이지 기본 설정
-st.set_page_config(
-    page_title="🎵 가사 썸네일 생성기",
-    page_icon="🎵",
-    layout="centered",
-)
+st.set_page_config(page_title="가사 썸네일 생성기", page_icon="🎵", layout="centered")
 
-# 스마트폰 최적화 CSS
 st.markdown("""
 <style>
-    .block-container { padding: 1rem 1rem 2rem 1rem !important; max-width: 720px; }
-    .result-box {
-        background: #1e1e2e; color: #cdd6f4;
-        border: 1px solid #45475a; border-radius: 12px;
-        padding: 16px; font-size: 14px; line-height: 1.7;
-        white-space: pre-wrap; word-break: break-word; margin-bottom: 8px;
-    }
-    .section-header {
-        font-size: 16px; font-weight: 700; color: #cba6f7;
-        margin: 20px 0 8px 0; border-left: 4px solid #cba6f7; padding-left: 10px;
-    }
-    .stButton > button {
-        width: 100%; background: linear-gradient(135deg, #cba6f7, #89b4fa);
-        color: #1e1e2e; font-weight: 700; font-size: 16px;
-        border: none; border-radius: 10px; padding: 12px;
-    }
+.block-container{padding:1rem 1rem 2rem 1rem !important;max-width:720px}
+.result-box{background:#1e1e2e;color:#cdd6f4;border:1px solid #45475a;border-radius:12px;
+padding:16px;font-size:14px;line-height:1.7;white-space:pre-wrap;word-break:break-word;margin-bottom:8px}
+.sec-hd{font-size:16px;font-weight:700;color:#cba6f7;margin:20px 0 8px 0;
+border-left:4px solid #cba6f7;padding-left:10px}
+.stButton>button{width:100%;background:linear-gradient(135deg,#cba6f7,#89b4fa);
+color:#1e1e2e;font-weight:700;font-size:16px;border:none;border-radius:10px;padding:12px}
 </style>
 """, unsafe_allow_html=True)
 
-# 헤더
 st.markdown("# 🎵 가사 썸네일 & 유튜브 생성기")
 st.markdown("가사를 입력하면 AI가 썸네일 프롬프트와 유튜브 정보를 만들어 드려요.")
 st.divider()
 
-# ─────────────────────────────────────────
-# API 키: Secrets에서 먼저 불러오고,
-# 없으면 입력창 표시
-# ─────────────────────────────────────────
-api_key = st.secrets.get("OPENAI_API_KEY", "")
+# API 키 입력 (secrets 없이 항상 입력창으로 - 가장 안전한 방법)
+with st.expander("🔑 OpenAI API 키 설정", expanded=True):
+    api_key = st.text_input(
+        "API 키",
+        type="password",
+        placeholder="sk-...",
+        label_visibility="collapsed"
+    )
+    st.caption("🔒 키는 이 세션에서만 사용되며 저장되지 않습니다. https://platform.openai.com")
 
-if not api_key:
-    with st.expander("🔑 OpenAI API 키 설정 (처음 한 번만)", expanded=True):
-        api_key = st.text_input(
-            "OpenAI API 키를 입력하세요",
-            type="password",
-            placeholder="sk-...",
-            help="https://platform.openai.com 에서 발급받을 수 있어요."
-        )
-        st.caption("🔒 API 키는 이 세션에서만 사용되며 저장되지 않습니다.")
-else:
-    st.success("🔐 API 키가 안전하게 설정되어 있어요!", icon="✅")
-
-# 가사 입력
 st.markdown("### ✍️ 가사 입력")
 lyrics = st.text_area(
-    label="가사",
-    placeholder="가사를 여기에 붙여넣기 하세요...\n\n예시:\n그대의 미소가 나를 부르는 밤\n별빛 아래 우리 둘이 걷던 그 길",
+    "가사",
+    placeholder="가사를 여기에 붙여넣기 하세요...",
     height=220,
     label_visibility="collapsed"
 )
 
 with st.expander("⚙️ 추가 옵션"):
-    genre = st.selectbox(
-        "음악 장르",
-        ["자동 감지", "발라드", "K-POP", "힙합", "R&B", "록", "재즈", "포크", "OST"]
-    )
-    channel_concept = st.text_input(
-        "채널 콘셉트 (선택사항)",
-        placeholder="예: 감성 피아노, 힐링 음악 채널..."
-    )
+    genre = st.selectbox("장르", ["자동 감지", "발라드", "K-POP", "힙합", "R&B", "록", "재즈", "포크", "OST"])
+    concept = st.text_input("채널 콘셉트 (선택)", placeholder="예: 감성 피아노, 힐링 채널...")
 
+def run_ai(key, lyr, gnr, con):
+    client = OpenAI(api_key=key)
 
-def analyze_lyrics(api_key, lyrics, genre, channel_concept):
-    """가사를 분석하여 썸네일 프롬프트와 유튜브 정보를 생성"""
-    client = OpenAI(api_key=api_key)
-    genre_text = f"장르: {genre}" if genre != "자동 감지" else "장르는 가사에서 자동 판단해주세요."
-    concept_text = f"채널 콘셉트: {channel_concept}" if channel_concept.strip() else ""
+    g = ("장르: " + gnr) if gnr != "자동 감지" else "장르는 가사에서 판단"
+    c = ("채널: " + con) if con.strip() else ""
 
-    prompt = f"""
-당신은 음악 콘텐츠 전문 AI 크리에이터입니다.
-아래 가사를 분석하고 요청된 형식으로 작성해주세요.
+    p = "아래 가사를 분석해서 4가지를 작성하세요.\n\n"
+    p += "[가사]\n" + lyr + "\n\n"
+    p += "[정보]\n" + g + "\n" + c + "\n\n"
+    p += "1. [감성분석] 가사의 감정과 분위기를 시각적으로 3~5줄\n\n"
+    p += "2. [이미지프롬프트] Midjourney용 영문 프롬프트 100~150단어\n\n"
+    p += "3. [유튜브제목] 감성형/정보형/궁금증형 3가지, 이모지 포함\n\n"
+    p += "4. [유튜브설명] 지혜롭고 철학적인 2~3문단 + 해시태그 15개 + 구독유도 1줄"
 
-[가사]
-{lyrics}
-
-[추가 정보]
-{genre_text}
-{concept_text}
-
-다음 4가지를 순서대로 작성해주세요:
-
-【1. 감성 분석】
-- 가사의 핵심 감정과 분위기를 3~5줄로 설명하세요.
-- 색깔, 시간대, 계절, 날씨 등 시각적 이미지로 표현하세요.
-
-【2. 이미지 생성 AI 프롬프트 (영문)】
-- Midjourney/DALL-E 3용 영문 프롬프트. 반드시 영어로만, 100~150단어.
-- 형식: [장면 묘사], [분위기], [색감], [화풍], [카메라/조명], [해상도]
-
-【3. 유튜브 제목 3가지】
-- 감성형 / 정보형 / 궁금증 유발형으로 각각 다르게
-- 이모지 포함, 40자 이내
-
-【4. 유튜브 영상 설명글】
-- 지혜롭고 깊이 있는 문체로. 철학적이고 성찰적인 느낌.
-- 가사의 의미와 삶의 통찰을 연결하는 2~3문단
-- 해시태그 15개 (한국어+영어 혼합)
-- 구독/좋아요 유도 문구 1줄
-"""
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",   # 저렴하고 빠른 모델
+    res = client.chat.completions.create(
+        model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "You are a music content AI. Always respond in Korean (UTF-8)."},
-            {"role": "user", "content": prompt}
+            {"role": "system", "content": "You are a Korean music content creator. Respond in Korean."},
+            {"role": "user", "content": p}
         ],
         temperature=0.8,
         max_tokens=2000,
     )
+    return res.choices[0].message.content
 
-    full_text = response.choices[0].message.content
-    sections = {"emotion": "", "prompt": "", "titles": "", "description": ""}
-    markers = {
-        "emotion": "【1. 감성 분석】",
-        "prompt": "【2. 이미지 생성",
-        "titles": "【3. 유튜브 제목",
-        "description": "【4. 유튜브 영상"
-    }
-    current_key = None
-    for line in full_text.split("\n"):
-        matched = False
-        for key, marker in markers.items():
-            if marker in line:
-                current_key = key
-                matched = True
-                break
-        if not matched and current_key:
-            sections[current_key] += line + "\n"
-    return sections
+def show_section(title, tip, content):
+    st.markdown(f'<div class="sec-hd">{title}</div>', unsafe_allow_html=True)
+    st.caption(tip)
+    st.markdown(f'<div class="result-box">{content}</div>', unsafe_allow_html=True)
+    # 텍스트 영역으로도 보여줘서 길게 눌러 복사 가능하게
+    st.text_area("복사용", value=content, height=120, label_visibility="collapsed", key=title)
 
-
-def copy_button(text, button_id, label="📋 복사하기"):
-    """클립보드 복사 버튼"""
-    escaped = text.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$").replace("\n", "\\n")
-    st.markdown(f"""
-    <button onclick="navigator.clipboard.writeText(`{escaped}`).then(()=>{{
-        this.textContent='✅ 복사됨!';
-        setTimeout(()=>this.textContent='{label}',2000);
-    }})"
-    style="background:#313244;color:#cdd6f4;border:1px solid #45475a;
-           border-radius:8px;padding:8px 16px;font-size:13px;
-           cursor:pointer;width:100%;margin-bottom:20px;">
-    {label}</button>
-    """, unsafe_allow_html=True)
-
-
-# 실행 버튼
-generate_btn = st.button("🚀 AI 분석 시작!", use_container_width=True)
-
-if generate_btn:
+if st.button("🚀 AI 분석 시작!", use_container_width=True):
     if not api_key.strip():
-        st.error("⚠️ OpenAI API 키를 먼저 입력해주세요!")
+        st.error("API 키를 입력해주세요!")
         st.stop()
     if not lyrics.strip():
-        st.error("⚠️ 가사를 입력해주세요!")
+        st.error("가사를 입력해주세요!")
         st.stop()
 
-    with st.spinner("🎵 AI가 분석 중이에요... (10~20초 소요)"):
+    with st.spinner("AI가 분석 중이에요... 10~20초 소요"):
         try:
-            results = analyze_lyrics(api_key, lyrics, genre, channel_concept)
+            result = run_ai(api_key, lyrics, genre, concept)
             st.success("✨ 분석 완료!")
             st.divider()
 
-            items = [
-                ("emotion",     "🎭 감성 분석",              "가사의 감성과 분위기"),
-                ("prompt",      "🎨 이미지 생성 AI 프롬프트", "Midjourney, DALL-E 3에 바로 사용 가능"),
-                ("titles",      "📺 유튜브 제목 3가지",       "마음에 드는 제목을 선택하세요"),
-                ("description", "📝 유튜브 설명글 & 해시태그", "유튜브 설명란에 그대로 붙여넣기"),
-            ]
-            for key, title, tip in items:
-                st.markdown(f'<div class="section-header">{title}</div>', unsafe_allow_html=True)
-                st.caption(tip)
-                content = results[key].strip()
-                st.markdown(f'<div class="result-box">{content}</div>', unsafe_allow_html=True)
-                copy_button(content, f"btn_{key}", f"📋 {title} 복사")
+            # 결과를 섹션별로 나누기
+            parts = {"감성분석": "", "이미지프롬프트": "", "유튜브제목": "", "유튜브설명": ""}
+            cur = None
+            for line in result.split("\n"):
+                for k in parts:
+                    if k in line or k.replace("분석","").replace("프롬프트","").replace("제목","").replace("설명","") in line:
+                        if any(marker in line for marker in ["1.", "2.", "3.", "4.", "[", "【"]):
+                            cur = k
+                            break
+                else:
+                    if cur:
+                        parts[cur] += line + "\n"
+
+            # 섹션이 제대로 안 나뉘면 전체 출력
+            if all(v.strip() == "" for v in parts.values()):
+                st.markdown('<div class="sec-hd">📋 분석 결과</div>', unsafe_allow_html=True)
+                st.text_area("결과 전체", value=result, height=500, label_visibility="collapsed")
+            else:
+                labels = [
+                    ("감성분석",    "🎭 감성 분석",              "가사의 감성과 분위기"),
+                    ("이미지프롬프트", "🎨 이미지 생성 프롬프트", "Midjourney / DALL-E 3 용"),
+                    ("유튜브제목",  "📺 유튜브 제목 3가지",      "마음에 드는 것 선택"),
+                    ("유튜브설명",  "📝 유튜브 설명글 & 해시태그","설명란에 붙여넣기"),
+                ]
+                for k, title, tip in labels:
+                    if parts[k].strip():
+                        show_section(title, tip, parts[k].strip())
+
+            st.info("💡 텍스트 박스를 길게 눌러 전체 선택 후 복사하세요!")
 
         except Exception as e:
             err = str(e)
-            if "api_key" in err.lower() or "authentication" in err.lower():
-                st.error("❌ API 키가 올바르지 않아요.")
-            elif "quota" in err.lower():
-                st.error("❌ API 사용 한도를 초과했어요. 크레딧을 충전해주세요.")
+            if "auth" in err.lower() or "api_key" in err.lower() or "invalid" in err.lower():
+                st.error("API 키가 올바르지 않아요. 다시 확인해주세요.")
+            elif "quota" in err.lower() or "billing" in err.lower():
+                st.error("API 크레딧이 부족해요. OpenAI에서 충전해주세요.")
+            elif "rate" in err.lower():
+                st.error("요청이 너무 많아요. 잠시 후 다시 시도해주세요.")
             else:
-                st.error(f"❌ 오류: {err}")
+                st.error("오류가 발생했어요: " + err)
 
 st.divider()
-st.caption("🎵 가사 썸네일 & 유튜브 정보 생성기 | Powered by OpenAI")
+st.caption("🎵 가사 썸네일 & 유튜브 정보 생성기 | Powered by OpenAI GPT-4o mini")
